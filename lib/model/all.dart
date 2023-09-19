@@ -1,3 +1,4 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
 class BrowserModel extends ChangeNotifier {
@@ -22,5 +23,10 @@ class BrowserModel extends ChangeNotifier {
       _bookmarks.removeAt(index);
       notifyListeners();
     }
+  }
+  Future<bool> checkInternetConnection() async {
+    final ConnectivityResult connectivityResult =
+    await Connectivity().checkConnectivity();
+    return connectivityResult != ConnectivityResult.none;
   }
 }

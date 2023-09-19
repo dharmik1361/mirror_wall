@@ -1,8 +1,9 @@
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-
+import 'package:provider/provider.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../main.dart';
+import '../model/all.dart';
 
 enum SearchEngine { google, duckDuckGo, bing, yahoo }
 
@@ -16,8 +17,6 @@ class MirrorScreen extends StatefulWidget {
 class _MirrorScreenState extends State<MirrorScreen> {
   late InAppWebViewController _webViewController;
   late TextEditingController _searchController = TextEditingController();
-  List<String> bookmarks = [];
-  String currentUrl = "https://www.google.com/";
   SearchEngine selectedSearchEngine = SearchEngine.google;
 
   @override
@@ -30,28 +29,19 @@ class _MirrorScreenState extends State<MirrorScreen> {
   void initState() {
     super.initState();
     _searchController = TextEditingController();
-    bookmarks = pref.getStringList('bookmarks') ?? [];
   }
 
-  Future<bool> checkInternetConnection() async {
-    final ConnectivityResult connectivityResult =
-        await Connectivity().checkConnectivity();
-    return connectivityResult != ConnectivityResult.none;
-  }
-
-  Future<void> _loadWebPage() async {
-    final bool isConnected = await checkInternetConnection();
+  Future<void> _loadWebPage(String currentUrl, BuildContext context) async {
+    final bool isConnected = await Provider.of<BrowserModel>(context, listen: false).checkInternetConnection();
     if (!isConnected) {
-      // Handle no internet connection
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text('No internet connection.'),
         ),
       );
       return;
     }
 
-    // Load the web page
     _webViewController.loadUrl(
       urlRequest: URLRequest(
         url: Uri.parse(currentUrl),
@@ -88,7 +78,7 @@ class _MirrorScreenState extends State<MirrorScreen> {
     }
   }
 
-  void _goHome() {
+  void _goHome(String currentUrl) {
     _webViewController.loadUrl(
       urlRequest: URLRequest(
         url: Uri.parse(currentUrl),
@@ -96,25 +86,8 @@ class _MirrorScreenState extends State<MirrorScreen> {
     );
   }
 
-  void saveBookmarks(List<String> bookmarks) {
-    final List<String> savedBookmarks = pref.getStringList('bookmarks') ?? [];
-    savedBookmarks.addAll(bookmarks);
-    pref.setStringList('bookmarks', savedBookmarks);
-  }
-
-  void remove(int index) {
-    final removedBookmark = bookmarks.removeAt(index);
-    saveBookmarks(bookmarks);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("BookMark removed: $removedBookmark"),
-      ),
-    );
-    setState(() {});
-  }
-
   void _addBookmark(BuildContext context) {
+    final currentUrl = Provider.of<BrowserModel>(context, listen: false).currentUrl;
     showModalBottomSheet(
       context: context,
       builder: (BuildContext context) {
@@ -140,19 +113,14 @@ class _MirrorScreenState extends State<MirrorScreen> {
               ElevatedButton(
                 onPressed: () {
                   final url = currentUrl;
-                  setState(() {
-                    bookmarks.add(url); // Add to bookmarks list
-                  });
-
-                  // Save the updated bookmarks list to SharedPreferences
-                  saveBookmarks(bookmarks);
-
+                  Provider.of<BrowserModel>(context, listen: false).addBookmark(url);
+                  saveBookmarks(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Bookmark added for $url'),
                     ),
                   );
-                  Navigator.pop(context); // Close the bottom sheet
+                  Navigator.pop(context);
                 },
                 child: const Text('Add Bookmark'),
               ),
@@ -161,6 +129,13 @@ class _MirrorScreenState extends State<MirrorScreen> {
         );
       },
     );
+  }
+
+  void saveBookmarks(BuildContext context) {
+    final bookmarks = Provider.of<BrowserModel>(context, listen: false).bookmarks;
+    final savedBookmarks = pref.getStringList('bookmarks') ?? [];
+    savedBookmarks.addAll(bookmarks);
+    pref.setStringList('bookmarks', savedBookmarks);
   }
 
   void _showAllBookmarks(BuildContext context) {
@@ -181,16 +156,22 @@ class _MirrorScreenState extends State<MirrorScreen> {
                 ),
               ),
               Expanded(
-                child: ListView.builder(
-                  itemCount: bookmarks.length,
-                  itemBuilder: (context, index) {
-                    return ListTile(
-                      title: Text(bookmarks[index]),
-                      trailing: IconButton(
-                          onPressed: () {
-                            remove(index);
-                          },
-                          icon: Icon(Icons.delete)),
+                child: Consumer<BrowserModel>(
+                  builder: (context, browserModel, child) {
+                    final bookmarks = browserModel.bookmarks;
+                    return ListView.builder(
+                      itemCount: bookmarks.length,
+                      itemBuilder: (context, index) {
+                        return ListTile(
+                          title: Text(bookmarks[index]),
+                          trailing: IconButton(
+                            onPressed: () {
+                              Provider.of<BrowserModel>(context, listen: false).removeBookmark(index);
+                            },
+                            icon: const Icon(Icons.delete),
+                          ),
+                        );
+                      },
                     );
                   },
                 ),
@@ -237,43 +218,46 @@ class _MirrorScreenState extends State<MirrorScreen> {
                       builder: (context) {
                         return AlertDialog(
                           title: const Text("Search Engine"),
-                          content: Container(
+                          content: SizedBox(
                             height: 300,
                             width: 250,
                             child: Column(
                               children: [
                                 ListTile(
                                   title: const Text("Google"),
-                                  leading: CircleAvatar(backgroundImage: AssetImage("assets/google.png")),
+                                  leading: const CircleAvatar(backgroundImage: AssetImage("assets/google.png")),
                                   trailing: Radio(
-                            value: SearchEngine.google,
-                            groupValue: selectedSearchEngine,
-                            onChanged: (value) {
-                              setState(() {
-                                selectedSearchEngine =
-                                value as SearchEngine;
-                              });
-                            },
-                          ),
+                                    value: SearchEngine.google,
+                                    groupValue: selectedSearchEngine,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        selectedSearchEngine =
+                                        value as SearchEngine;
+                                      });
+                                    },
+                                  ),
                                 ),
                                 ListTile(
                                   title: const Text("DuckDuckGo"),
-                                  leading: CircleAvatar(backgroundImage: AssetImage("assets/duck.png")),
+                                  leading: const CircleAvatar(
+                                      backgroundImage:
+                                      AssetImage("assets/duck.png")),
                                   trailing: Radio(
-                                  value: SearchEngine.duckDuckGo,
-                                  groupValue: selectedSearchEngine,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      selectedSearchEngine =
-                                      value as SearchEngine;
-                                    });
-                                  },
-                                ),
-
+                                    value: SearchEngine.duckDuckGo,
+                                    groupValue: selectedSearchEngine,
+                                    onChanged: (value) {
+                                      setState(() {
+                                        selectedSearchEngine =
+                                        value as SearchEngine;
+                                      });
+                                    },
+                                  ),
                                 ),
                                 ListTile(
                                   title: const Text("Bing"),
-                                  leading: CircleAvatar(backgroundImage: AssetImage("assets/bing.jpg")),
+                                  leading: const CircleAvatar(
+                                      backgroundImage:
+                                      AssetImage("assets/bing.jpg")),
                                   trailing: Radio(
                                     value: SearchEngine.bing,
                                     groupValue: selectedSearchEngine,
@@ -284,11 +268,12 @@ class _MirrorScreenState extends State<MirrorScreen> {
                                       });
                                     },
                                   ),
-
                                 ),
                                 ListTile(
                                   title: const Text("Yahoo"),
-                                  leading: CircleAvatar(backgroundImage: AssetImage("assets/yaho.png")),
+                                  leading: const CircleAvatar(
+                                      backgroundImage:
+                                      AssetImage("assets/yaho.png")),
                                   trailing: Radio(
                                     value: SearchEngine.yahoo,
                                     groupValue: selectedSearchEngine,
@@ -299,15 +284,14 @@ class _MirrorScreenState extends State<MirrorScreen> {
                                       });
                                     },
                                   ),
-
                                 ),
                                 ElevatedButton(
                                   onPressed: () {
-                                    Navigator.pop(context); // Close the dialog
+                                    Navigator.pop(context);
                                     _search(
                                         selectedSearchEngine,
                                         _searchController
-                                            .text); // Start the search
+                                            .text);
                                   },
                                   child: const Text('Search'),
                                 ),
@@ -331,7 +315,7 @@ class _MirrorScreenState extends State<MirrorScreen> {
             child: TextField(
               controller: _searchController,
               onSubmitted: (query) {
-                _search(selectedSearchEngine, query); // Start the search
+                _search(selectedSearchEngine, query);
               },
               decoration: InputDecoration(
                 border: const OutlineInputBorder(),
@@ -351,19 +335,19 @@ class _MirrorScreenState extends State<MirrorScreen> {
                 builder: (context, snapshot) {
                   final connectivityResult = snapshot.data;
                   if (connectivityResult == ConnectivityResult.none) {
-                    return Center(child: Text("No Interner"));
+                    return const Center(child: Text("No Internet"));
                   } else {
                     return InAppWebView(
                       initialUrlRequest: URLRequest(
-                        url: Uri.parse(currentUrl),
+                        url: Uri.parse(
+                            Provider.of<BrowserModel>(context).currentUrl),
                       ),
                       onWebViewCreated: (controller) {
                         _webViewController = controller;
                       },
                       onLoadStop: (controller, url) {
-                        setState(() {
-                          currentUrl = url.toString();
-                        });
+                        Provider.of<BrowserModel>(context, listen: false)
+                            .updateUrl(url.toString());
                       },
                     );
                   }
@@ -411,9 +395,10 @@ class _MirrorScreenState extends State<MirrorScreen> {
         ],
         onTap: (index) {
           if (index == 0) {
-            _goHome();
+            _goHome(
+                Provider.of<BrowserModel>(context, listen: false).currentUrl);
           } else if (index == 1) {
-            _addBookmark(context); // Show the bottom sheet
+            _addBookmark(context);
           }
         },
       ),
